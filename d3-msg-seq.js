@@ -27,15 +27,6 @@ d3.messageSequence = function() {
     });
   }
 
-  // http://stackoverflow.com/questions/10692100/invoke-a-callback-at-the-end-of-a-transition
-  function endall(transition, callback) {
-    if (transition.size() === 0) { callback() }
-    var n = 0;
-    transition
-      .each(function() { ++n; })
-      .each("end", function() { if (!--n) callback.apply(this, arguments); });
-  }
-
   function chart(selection) {
     selection.each(function() {
       var svg = d3.select(this);
@@ -93,10 +84,24 @@ d3.messageSequence = function() {
                  "a 40 " + ry + " 0 1 " + sweep_flag + " 0 " + ry*2;
         }
 
+        function fade_message() {
+          svg.select("g.message")
+            .transition()
+            .duration(fade_time)
+            .style("opacity", 0)
+            .remove()
+            .on("end", function() {
+              data.shift();
+              remove_free_actors();
+              update();
+              if (data.length > 0)
+                fade_message();
+            });
+        }
+
         function update_message_elements(messages) {
           messages.select("line")
             .transition()
-              .ease("cubic")
               .duration(animation_time)
               .attr("x1", function(d) { return actor_horizontal_center_percent(d.from) })
               .attr("y1", function(d, i) { return (i+1)*50 })
@@ -105,13 +110,11 @@ d3.messageSequence = function() {
 
           messages.select("path")
             .transition()
-            .ease("cubic")
             .duration(animation_time)
             .attr("d", arc_to_self);
 
           messages.select("text")
             .transition()
-            .ease("cubic")
             .duration(animation_time)
             .attr("x", function(d) {
               var x1 = Number.parseFloat(actor_horizontal_center_percent(d.from)),
@@ -120,7 +123,6 @@ d3.messageSequence = function() {
               return horizontal_center(x1, x2);
             })
             .attr("y", function(d, i) { return (i+1)*50 - 5 });
-
         }
 
         var messages = svg.selectAll("g.message").data(data);
@@ -132,12 +134,14 @@ d3.messageSequence = function() {
 
         actors.exit()
           .transition()
-            .ease("cubic")
             .duration(animation_time)
             .style("opacity", 0)
             .remove();
 
         var new_actors = actors.enter().append("g");
+
+        actors = actors.merge(new_actors);
+
         new_actors.classed("actor", true)
           .append("text");
 
@@ -150,7 +154,6 @@ d3.messageSequence = function() {
           .text(function(d) { return d })
           .attr("dy", "20")
           .transition()
-            .ease("cubic")
             .duration(animation_time)
             .attr("x", index_horizontal_center_percent);
 
@@ -162,15 +165,17 @@ d3.messageSequence = function() {
           })
           .attr("y2", "100%")
           .transition()
-            .ease("cubic")
             .duration(animation_time)
             .attr("x1", index_horizontal_center_percent)
             .attr("x2", index_horizontal_center_percent)
-            .call(endall, function() {
-              var new_messages = messages.enter().append("g")
-                    .classed("message", true);
+            .on("end", function() {
+              var new_messages = messages
+                  .enter()
+                  .append("g")
+                  .classed("message", true);
 
-              // this is a really bootleg approach, but it's necessary to maintain ordering
+              messages = messages.merge(new_messages);
+
               new_messages.each(function(d, i) {
                 var new_message = d3.select(this);
 
@@ -202,19 +207,8 @@ d3.messageSequence = function() {
                   .attr("y", (i+1)*50 - 5);
               });
 
-              if (fade_time > 0) {
-                new_messages
-                  .transition()
-                  .ease("cubic")
-                  .duration(fade_time)
-                  .style("opacity", 0)
-                  .remove()
-                  .each("end", function() {
-                    data.shift();
-                    remove_free_actors();
-                    update();
-                  });
-              }
+              if (fade_time > 0 && data.length == 1)
+                fade_message();
 
               animation_in_progress = false;
               if (update_pending) {
